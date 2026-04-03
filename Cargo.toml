@@ -1,0 +1,20 @@
+[package]
+name        = "bx"
+version     = "0.2.0"
+edition     = "2021"
+description = "Build error extractor and navigator for C++ / CMake / Ninja"
+license     = "MIT"
+
+[[bin]]
+name = "bx"
+path = "src/main.rs"
+
+[dependencies]
+ratatui   = "0.26"
+crossterm = "0.27"
+regex     = "1"
+arboard   = "3"
+anyhow    = "1"
+toml      = "0.8"
+serde     = { version = "1", features = ["derive"] }
+

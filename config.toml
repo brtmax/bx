@@ -1,0 +1,9 @@
+context = 15   # override default context lines
+
+[[patterns]]
+pattern  = "MY_COMPILER: error"
+severity = "error"
+
+[[patterns]]
+pattern  = "MY_COMPILER: warning"
+severity = "warning"
