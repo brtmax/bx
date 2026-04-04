@@ -4,6 +4,7 @@ Build error extractor with Vim keybindings for C++ / CMake / Ninja. Wraps your b
 
 ![bx demo|600](bx.gif)
 
+Partially a learning project for Rust, so be lenient :-)
 
 ## Install
 
