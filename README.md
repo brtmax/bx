@@ -52,6 +52,7 @@ severity = "error"
 - Improve 'gg' handling for timeout case with expiry
 - Compiler detection
 - Use clap for arg parsing, shell completions
+- More vim keybindings, line numbers, $n$ {h,j,k,l},  
 
 ## License
 
