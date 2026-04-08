@@ -1,3 +1,6 @@
+//! Pattern matching, context grouping, and the ErrorBlock data model.
+//! No I/O lives here — everything is pure data transformation.
+
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
@@ -152,10 +155,13 @@ pub enum ContextKind {
 
 #[derive(Debug, Clone)]
 pub struct ErrorBlock {
-    pub trigger:  String,
-    pub severity: Severity,
-    pub context:  Vec<(ContextKind, String)>,
-    pub location: Option<SourceLoc>,
+    pub trigger:       String,
+    pub severity:      Severity,
+    pub context:       Vec<(ContextKind, String)>,
+    pub location:      Option<SourceLoc>,
+    /// Soft display cap — how many context lines to show in the TUI detail pane.
+    /// The block may store more lines than this; full_text() always returns all of them.
+    pub context_limit: usize,
 }
 
 impl ErrorBlock {
@@ -181,7 +187,14 @@ impl ErrorBlock {
             Style::default().fg(self.severity.color()).add_modifier(Modifier::BOLD),
         ))];
 
+        // Render up to context_limit lines. Notes always show regardless of the cap
+        // since they are semantically part of the error, not noise.
+        let mut context_count = 0;
         for (kind, line) in &self.context {
+            if *kind == ContextKind::Context {
+                if context_count >= self.context_limit { continue; }
+                context_count += 1;
+            }
             let (prefix, color) = match kind {
                 ContextKind::Note    => ("  >> ", palette::PINE),
                 ContextKind::Context => ("     ", palette::SLATE),
@@ -191,66 +204,94 @@ impl ErrorBlock {
                 Style::default().fg(color),
             )));
         }
+
+        // If context was truncated, append a dim indicator
+        let total_context = self.context.iter().filter(|(k, _)| *k == ContextKind::Context).count();
+        if total_context > self.context_limit {
+            lines.push(Line::from(Span::styled(
+                format!("     … {} more lines (y to copy full block)", total_context - self.context_limit),
+                Style::default().fg(palette::MUTED),
+            )));
+        }
+
         lines
     }
 }
 
 /// Group raw build output into ErrorBlocks.
 ///
-/// Notes always attach to the previous block, they are annotations of the
-/// line above them in compiler output, never a new block.
+/// Notes always attach to the previous block. Unclassified lines are buffered
+/// and flushed into the current block when the next trigger line arrives —
+/// so each block stores everything up to the next error, not an arbitrary
+/// line count. The location-aware check still applies to prevent noise lines
+/// from a different file bleeding into the wrong block.
 ///
-/// Unclassified lines attach as context up to `context_limit`. Context stops
-/// early if a line has a parseable location that is in a different file or
-/// more than LOC_JUMP_THRESHOLD lines away from the trigger — this prevents
-/// context from one error bleeding into the next.
+/// `context_limit` is passed through to `ErrorBlock` for use by the display
+/// layer, which uses it as a soft cap on how many context lines to render.
 pub fn collect_blocks(raw: &str, context_limit: usize, patterns: &[Pattern]) -> Vec<ErrorBlock> {
     const LOC_JUMP_THRESHOLD: u32 = 5;
 
     let mut blocks: Vec<ErrorBlock> = Vec::new();
-    let mut context_remaining = 0usize;
+    let mut pending: Vec<String> = Vec::new();
 
     for line in raw.lines() {
         let sev = classify(line, patterns);
 
         if let Some(Severity::Note) = sev {
             if let Some(last) = blocks.last_mut() {
+                // flush pending context before the note
+                for p in pending.drain(..) {
+                    last.context.push((ContextKind::Context, p));
+                }
                 last.context.push((ContextKind::Note, line.to_string()));
                 continue;
             }
         }
 
         if let Some(s) = sev {
+            // flush pending into the previous block before opening a new one
+            if let Some(last) = blocks.last_mut() {
+                for p in pending.drain(..) {
+                    last.context.push((ContextKind::Context, p));
+                }
+            } else {
+                pending.clear();
+            }
             blocks.push(ErrorBlock {
-                trigger:  line.to_string(),
-                severity: s.clone(),
-                context:  Vec::new(),
-                location: parse_location(line),
+                trigger:       line.to_string(),
+                severity:      s.clone(),
+                context:       Vec::new(),
+                location:      parse_location(line),
+                context_limit,
             });
-            context_remaining = context_limit;
             continue;
         }
 
-        if context_remaining == 0 {
+        // Skip if no block has started yet
+        if blocks.is_empty() {
             continue;
         }
 
-        // Stop attaching context if this line's location is far from the trigger.
+        // Stop buffering if this line's location is far from the current trigger.
         if let Some(last) = blocks.last() {
             if let (Some(trigger_loc), Some(line_loc)) = (&last.location, parse_location(line)) {
                 let different_file = trigger_loc.file != line_loc.file;
                 let far_away = trigger_loc.file == line_loc.file
                     && line_loc.line.abs_diff(trigger_loc.line) > LOC_JUMP_THRESHOLD;
                 if different_file || far_away {
-                    context_remaining = 0;
+                    pending.clear();
                     continue;
                 }
             }
         }
 
-        if let Some(last) = blocks.last_mut() {
-            last.context.push((ContextKind::Context, line.to_string()));
-            context_remaining -= 1;
+        pending.push(line.to_string());
+    }
+
+    // flush any remaining pending into the last block
+    if let Some(last) = blocks.last_mut() {
+        for p in pending.drain(..) {
+            last.context.push((ContextKind::Context, p));
         }
     }
 
@@ -458,10 +499,11 @@ mod tests {
     #[test]
     fn full_text_includes_context() {
         let block = ErrorBlock {
-            trigger:  "foo.cpp:1: error: bad".into(),
-            severity: Severity::Error,
-            location: None,
-            context:  vec![
+            trigger:       "foo.cpp:1: error: bad".into(),
+            severity:      Severity::Error,
+            location:      None,
+            context_limit: 10,
+            context:       vec![
                 (ContextKind::Context, "   1 | bad_code()".into()),
                 (ContextKind::Note,    "foo.cpp:5: note: here".into()),
             ],
