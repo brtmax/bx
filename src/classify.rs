@@ -1,6 +1,3 @@
-//! Pattern matching, context grouping, and the ErrorBlock data model.
-//! No I/O lives here — everything is pure data transformation.
-
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
@@ -53,25 +50,55 @@ pub struct Pattern {
 // fatal error: must come before error: so it isn't swallowed.
 fn builtin_patterns() -> Vec<(&'static str, Severity)> {
     vec![
+        // GCC / Clang
         (r":\s*fatal error:",        Severity::Error),
         (r":\s*error:",              Severity::Error),
-        (r"error: ld returned",      Severity::Linker),
-        (r"undefined reference to",  Severity::Linker),
-        (r"multiple definition of",  Severity::Linker),
-        (r"linker command failed",   Severity::Linker),
-        (r"cannot find -l",          Severity::Linker),
+        (r"error: ld returned",       Severity::Linker),
+        (r"undefined reference to",   Severity::Linker),
+        (r"multiple definition of",   Severity::Linker),
+        (r"linker command failed",    Severity::Linker),
+        (r"cannot find -l",           Severity::Linker),
         (r":\s*warning:",            Severity::Warning),
         (r":\s*note:",               Severity::Note),
-        (r"CMake Error",             Severity::Error),
-        (r"CMake Warning",           Severity::Warning),
-        (r"-- FAILED",               Severity::Error),
-        (r"FAILED:",                 Severity::Build),
-        (r"ninja: build stopped",    Severity::Build),
-        (r"make\[.+\]: \*\*\*",      Severity::Build),
-        (r"make: \*\*\*",            Severity::Build),
-        (r"too many errors emitted", Severity::Error),
-        (r"errors generated",        Severity::Error),
-        (r"error generated",         Severity::Error),
+
+        // Rust / Cargo
+        // rustc: error[E0382]: message  or  error: message
+        // cargo summary line: error: could not compile `foo` — classified as Build, not Error,
+        // so it doesn't create a spurious block (the real errors already appeared above it)
+        (r"error: could not compile", Severity::Build),
+        (r"^aborting due to",         Severity::Build),
+        (r"^error\[E\d+\]:",       Severity::Error),
+        (r"^error:",                  Severity::Error),
+        (r"^warning\[",              Severity::Warning),
+        (r"^warning:",                Severity::Warning),
+        (r"^note:",                   Severity::Note),
+        (r"^help:",                   Severity::Note),
+
+        // Zig
+        // zig errors look like: src/main.zig:10:5: error: message
+        // comptime traces:      referenced by:
+        // build failures:       Build Summary: N/M steps succeeded
+        (r"\.zig:\d+:\d+: error:",   Severity::Error),
+        (r"\.zig:\d+:\d+: note:",    Severity::Note),
+        (r"referenced by:",            Severity::Note),
+        (r"error\(compilation\):",   Severity::Build),
+        (r"Build Summary:.*failed",    Severity::Build),
+
+        // CMake
+        (r"CMake Error",              Severity::Error),
+        (r"CMake Warning",            Severity::Warning),
+        (r"-- FAILED",                Severity::Error),
+
+        // Ninja / Make
+        (r"FAILED:",                  Severity::Build),
+        (r"ninja: build stopped",     Severity::Build),
+        (r"make\[.+\]: \*\*\*",  Severity::Build),
+        (r"make: \*\*\*",          Severity::Build),
+
+        // Clang summary lines
+        (r"too many errors emitted",  Severity::Error),
+        (r"errors generated",         Severity::Error),
+        (r"error generated",          Severity::Error),
     ]
 }
 
