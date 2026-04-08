@@ -53,7 +53,10 @@ severity = "error"
 - Improve 'gg' handling for timeout case with expiry
 - Compiler detection
 - Use clap for arg parsing, shell completions
-- More vim keybindings, line numbers, $n$ {h,j,k,l},  
+- More vim keybindings, line numbers, $n$ {h,j,k,l}
+- Progress bar for normal build outpu
+
+There should also be some way to retrieve the output from the last compilation without having to re-run it. Either just pipe to terminal after or bring it up with some special flag. Have to experiment what feels most natural/intuitive.
 
 ## License
 
