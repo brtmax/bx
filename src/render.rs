@@ -1,4 +1,6 @@
-use std::{io, time::Duration};
+//! Plain terminal output and the ratatui TUI.
+
+use std::{io, time::{Duration, Instant}};
 
 use anyhow::{Context, Result};
 use arboard::Clipboard;
@@ -69,7 +71,7 @@ struct App {
     list_state:    ListState,
     detail_scroll: u16,
     focus:         Focus,
-    last_g:        bool,
+    last_g:        Option<Instant>,
     notify:        Option<String>,
     clipboard:     Option<Clipboard>,
 }
@@ -80,14 +82,14 @@ impl App {
         if !blocks.is_empty() {
             list_state.select(Some(0));
         }
-        // Clipboard is initialized once here, on some platforms (X11) it
+        // Clipboard is initialized once here — on some platforms (X11) it
         // spawns a background thread, so doing it per-keypress would be wrong.
         Self {
             blocks,
             list_state,
             detail_scroll: 0,
             focus: Focus::List,
-            last_g: false,
+            last_g: None,
             notify: None,
             clipboard: Clipboard::new().ok(),
         }
@@ -179,16 +181,18 @@ fn run_loop<B: ratatui::backend::Backend>(term: &mut Terminal<B>, app: &mut App)
             match app.focus {
                 Focus::List => match key.code {
                     KeyCode::Char('q')                 => return Ok(()),
-                    KeyCode::Char('j') | KeyCode::Down => { app.move_down(); app.last_g = false; }
-                    KeyCode::Char('k') | KeyCode::Up   => { app.move_up();   app.last_g = false; }
-                    KeyCode::Char('G')                 => { app.jump_last(); app.last_g = false; }
+                    KeyCode::Char('j') | KeyCode::Down => { app.move_down(); app.last_g = None; }
+                    KeyCode::Char('k') | KeyCode::Up   => { app.move_up();   app.last_g = None; }
+                    KeyCode::Char('G')                 => { app.jump_last(); app.last_g = None; }
                     KeyCode::Char('g') => {
-                        if app.last_g { app.jump_first(); app.last_g = false; }
-                        else          { app.last_g = true; }
+                        let double_g = app.last_g
+                            .map_or(false, |t| t.elapsed() < Duration::from_millis(500));
+                        if double_g { app.jump_first(); app.last_g = None; }
+                        else        { app.last_g = Some(Instant::now()); }
                     }
-                    KeyCode::Char('y') => { app.yank(); app.last_g = false; }
-                    KeyCode::Enter     => { app.focus = Focus::Detail; app.last_g = false; }
-                    _                  => { app.last_g = false; }
+                    KeyCode::Char('y') => { app.yank(); app.last_g = None; }
+                    KeyCode::Enter     => { app.focus = Focus::Detail; app.last_g = None; }
+                    _                  => { app.last_g = None; }
                 },
                 Focus::Detail => match key.code {
                     KeyCode::Esc | KeyCode::Char('q') => { app.focus = Focus::List; app.detail_scroll = 0; }
