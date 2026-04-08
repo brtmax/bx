@@ -1,4 +1,4 @@
-context = 15   # override default context lines
+context = 30   # override default context lines
 
 [[patterns]]
 pattern  = "MY_COMPILER: error"
