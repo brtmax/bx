@@ -24,9 +24,18 @@ pub struct CommandOutput {
 #[derive(Clone, Copy)]
 enum Pipe { Stdout, Stderr }
 
-/// Run `cmd` as a subprocess. Non-zero exit is not an error, it comes back
+/// Run `cmd` as a subprocess. Non-zero exit is not an error — it comes back
 /// as `success: false` so the caller can decide what to do.
-pub fn run_command(cmd: &[String], verbose: bool) -> Result<CommandOutput> {
+/// Returns true if a line looks like a build progress indicator rather than
+/// compiler output. Matches ninja/cmake progress lines like `[ 42%] Building...`
+/// and `-- Installing:` style cmake install lines.
+fn is_progress_line(line: &str) -> bool {
+    let t = line.trim_start();
+    t.starts_with('[') && t.contains('%') && t.contains(']')
+        || t.starts_with("-- ")
+}
+
+pub fn run_command(cmd: &[String], verbose: bool, progress: bool) -> Result<CommandOutput> {
     anyhow::ensure!(!cmd.is_empty(), "no command provided");
 
     let mut child = Command::new(&cmd[0])
@@ -47,29 +56,33 @@ pub fn run_command(cmd: &[String], verbose: bool) -> Result<CommandOutput> {
     // dropped, rx starts returning Err and the receive loop below ends.
     let t_out = thread::spawn(move || {
         for line in BufReader::new(stdout_pipe).lines().flatten() {
+            if verbose {
+                println!("{}", line);
+            } else if progress && is_progress_line(&line) {
+                println!("{}", line);
+            }
             let _ = tx.send((Pipe::Stdout, line));
         }
     });
 
     let t_err = thread::spawn(move || {
         for line in BufReader::new(stderr_pipe).lines().flatten() {
+            if verbose {
+                eprintln!("{}", line);
+            } else if progress && is_progress_line(&line) {
+                eprintln!("{}", line);
+            }
             let _ = tx2.send((Pipe::Stderr, line));
         }
     });
 
     let mut raw = String::new();
-    for (pipe, line) in &rx {
-        if verbose {
-            match pipe {
-                Pipe::Stdout => println!("{}", line),
-                Pipe::Stderr => eprintln!("{}", line),
-            }
-        }
+    for (_pipe, line) in &rx {
         raw.push_str(&line);
         raw.push('\n');
     }
 
-    // wait() must come after draining rx, otherwise we can deadlock if the
+    // wait() must come after draining rx — otherwise we can deadlock if the
     // subprocess is blocked writing to a full pipe buffer.
     let status = child.wait().context("failed to wait for build command")?;
 

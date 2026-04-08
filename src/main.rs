@@ -1,3 +1,5 @@
+//! bx — build error extractor
+//!
 //! Usage:
 //!   bx cmake --build build
 //!   bx --tui cmake --build build
@@ -15,10 +17,13 @@ use classify::{build_patterns, collect_blocks, Config};
 use render::{render_plain, render_tui};
 use subprocess::{read_stdin, run_command};
 
+// Args
+
 struct Args {
     tui:      bool,
     warnings: bool,
     verbose:  bool,
+    progress: bool,
     context:  usize,
     cmd:      Vec<String>,
 }
@@ -30,6 +35,7 @@ impl Args {
             tui:      false,
             warnings: false,
             verbose:  false,
+            progress: false,
             context:  0,
             cmd:      Vec::new(),
         };
@@ -40,6 +46,7 @@ impl Args {
                 "--tui"            => args.tui      = true,
                 "--warnings"       => args.warnings = true,
                 "--verbose" | "-v" => args.verbose  = true,
+                "--progress" | "-p" => args.progress = true,
                 "--context" => {
                     i += 1;
                     args.context = raw.get(i)
@@ -70,7 +77,8 @@ USAGE:
 OPTIONS:
     --tui           Open interactive TUI navigator after a failed build
     --warnings      Also show warnings (errors only by default)
-    --verbose, -v   Stream raw build output live (silent by default)
+    --verbose, -v   Stream all build output live
+    --progress, -p  Show only build progress lines live ([ 42%] Building...)
     --context N     Lines of context per error block (default: 10)
     --help, -h      Show this help
 
@@ -98,6 +106,8 @@ CONFIG FILE:
     );
 }
 
+// main
+
 fn main() -> Result<()> {
     let args = Args::parse()?;
 
@@ -112,13 +122,18 @@ fn main() -> Result<()> {
     let patterns = build_patterns(&config.patterns)?;
 
     let (raw, success) = if !args.cmd.is_empty() {
-        let out = run_command(&args.cmd, args.verbose)?;
+        let out = run_command(&args.cmd, args.verbose, args.progress)?;
         (out.raw, out.success)
     } else {
         (read_stdin()?, false)
     };
 
     if success {
+        // Build succeeded — print the captured output so the user sees it
+        // (it was silent during the build unless --verbose or --progress was set)
+        if !args.verbose && !args.progress {
+            print!("{}", raw);
+        }
         return Ok(());
     }
 
