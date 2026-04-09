@@ -1,6 +1,6 @@
 # bx
 
-Build error extractor with Vim keybindings for C++ / CMake / Ninja. Wraps your build command, filters the noise, and shows you only what went wrong. Always thought it's tedious to filter through the output if you compile in the terminal alot. I wanted the ability to jump around a structured error output using vim keybindings. Neovim does this for me to some extend but I wanted it to be editor-agnostic as well. Should work from any shell, provide proper interacive navigation, and error blocks can be yanked/copied directly for further research. 
+Build error extractor with Vim keybindings for C++ / CMake / Ninja / Rust / Zig. Extendable. Wraps your build command, filters the noise, and shows you only what went wrong. Always thought it's tedious to filter through the output if you compile in the terminal alot. I wanted the ability to jump around a structured error output using vim keybindings. Neovim does this for me to some extend but I wanted it to be editor-agnostic as well. Should work from any shell, provide proper interacive navigation, and error blocks can be yanked/copied directly for further research. 
 
 <img src="bx.gif" width="400"/>
 
@@ -13,9 +13,17 @@ cargo install --path .
 ```
 
 ## Usage
+```bash
+bx --save <build command>   save command for this project
+bx [OPTIONS]                run saved command
+bx [OPTIONS] <build command>
 
-```
-bx [--tui] [--warnings] [--verbose] [--context N] <build command>
+OPTIONS:
+  --tui        open TUI navigator on failure (default when using saved command)
+  --warnings   also show warnings
+  --verbose    stream all build output live
+  --progress   show only progress lines live ([ 42%] Building...)
+  --context N  context lines shown per error in TUI (default: 10)
 ```
 
 For example: 
@@ -54,8 +62,9 @@ The command is stored in `.git/bx`. If it's not executed within a git repo, it f
 
 `~/.config/bx/config.toml`
 
+The context lines are how many lines it shows per error in the detail pane. bx always collects everything up to the next error, so the "context" here is only a display cap. 
 ```toml
-context = 15  # context lines per error (default: 10)
+context = 15  
 
 [[patterns]]
 pattern  = "MY_TOOL: error"
