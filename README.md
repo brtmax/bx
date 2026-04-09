@@ -24,6 +24,20 @@ bx cmake --build --preset debug
 bx --tui cmake --build --preset debug
 ```
 
+## Presetting the Build Command
+### once per project
+```bash
+bx --save cmake --build --preset debug
+```
+
+### every build after that
+```bash
+bx
+bx --tui
+bx --progress
+bx --tui --warnings
+```
+The command is stored in `.git/bx`. If it's not executed within a git repo, it falls back to `.bx-command`.
 
 ## Vim-ish keybindings
 
