@@ -55,10 +55,8 @@ pub fn run_command(cmd: &[String], verbose: bool, progress: bool) -> Result<Comm
     // exited), the thread exits and the sender drops. Once both senders have
     // dropped, rx starts returning Err and the receive loop below ends.
     let t_out = thread::spawn(move || {
-        for line in BufReader::new(stdout_pipe).lines().flatten() {
-            if verbose {
-                println!("{}", line);
-            } else if progress && is_progress_line(&line) {
+        for line in BufReader::new(stdout_pipe).lines().map_while(Result::ok) {
+            if verbose || (progress && is_progress_line(&line)) {
                 println!("{}", line);
             }
             let _ = tx.send((Pipe::Stdout, line));
@@ -66,10 +64,8 @@ pub fn run_command(cmd: &[String], verbose: bool, progress: bool) -> Result<Comm
     });
 
     let t_err = thread::spawn(move || {
-        for line in BufReader::new(stderr_pipe).lines().flatten() {
-            if verbose {
-                eprintln!("{}", line);
-            } else if progress && is_progress_line(&line) {
+        for line in BufReader::new(stderr_pipe).lines().map_while(Result::ok) {
+            if verbose || (progress && is_progress_line(&line)) {
                 eprintln!("{}", line);
             }
             let _ = tx2.send((Pipe::Stderr, line));
@@ -103,4 +99,57 @@ pub fn read_stdin() -> Result<String> {
         .map(|l| l.map(|s| s + "\n"))
         .collect::<io::Result<_>>()
         .context("failed to read stdin")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn progress_line_ninja_percentage() {
+        assert!(is_progress_line("[ 42%] Building CXX object foo.cpp.o"));
+        assert!(is_progress_line("[100%] Linking CXX executable bx"));
+        assert!(is_progress_line("[  3%] Building C object bar.c.o"));
+    }
+
+    #[test]
+    fn progress_line_cmake_dash() {
+        assert!(is_progress_line("-- Configuring done"));
+        assert!(is_progress_line("-- Build files have been written to: /build"));
+        assert!(is_progress_line("-- Installing: /usr/local/bin/bx"));
+    }
+
+    #[test]
+    fn progress_line_rejects_errors() {
+        assert!(!is_progress_line("src/foo.cpp:10:5: error: bad"));
+        assert!(!is_progress_line("FAILED: CMakeFiles/bx.dir/src/main.cpp.o"));
+        assert!(!is_progress_line("ninja: build stopped: subcommand failed."));
+        assert!(!is_progress_line(""));
+    }
+
+    #[test]
+    fn run_command_captures_stdout_and_stderr() {
+        let cmd: Vec<String> = vec![
+            "sh".into(),
+            "-c".into(),
+            "echo hello && echo world >&2".into(),
+        ];
+        let out = run_command(&cmd, false, false).unwrap();
+        assert!(out.raw.contains("hello"));
+        assert!(out.raw.contains("world"));
+        assert!(out.success);
+    }
+
+    #[test]
+    fn run_command_reports_failure() {
+        let cmd: Vec<String> = vec!["sh".into(), "-c".into(), "exit 1".into()];
+        let out = run_command(&cmd, false, false).unwrap();
+        assert!(!out.success);
+    }
+
+    #[test]
+    fn run_command_unknown_binary_errors() {
+        let cmd: Vec<String> = vec!["__bx_nonexistent_binary__".into()];
+        assert!(run_command(&cmd, false, false).is_err());
+    }
 }
