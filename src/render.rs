@@ -1,5 +1,3 @@
-//! Plain terminal output and the ratatui TUI.
-
 use std::{io, time::{Duration, Instant}};
 
 use anyhow::{Context, Result};
@@ -186,7 +184,7 @@ fn run_loop<B: ratatui::backend::Backend>(term: &mut Terminal<B>, app: &mut App)
                     KeyCode::Char('G')                 => { app.jump_last(); app.last_g = None; }
                     KeyCode::Char('g') => {
                         let double_g = app.last_g
-                            .map_or(false, |t| t.elapsed() < Duration::from_millis(500));
+                            .is_some_and(|t| t.elapsed() < Duration::from_millis(500));
                         if double_g { app.jump_first(); app.last_g = None; }
                         else        { app.last_g = Some(Instant::now()); }
                     }
