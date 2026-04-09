@@ -4,6 +4,10 @@ version     = "0.2.0"
 edition     = "2021"
 description = "Build error extractor and navigator for C++ / CMake / Ninja"
 license     = "MIT"
+repository  = "https://github.com/brtmax/bx"
+keywords    = ["cli", "tui", "compiler", "build", "cmake", "cpp"]
+categories  = ["command-line-utilities", "development-tools"]
+authors     = ["Max Bretschneider"]
 
 [[bin]]
 name = "bx"
