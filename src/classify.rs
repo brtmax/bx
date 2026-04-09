@@ -492,11 +492,14 @@ mod tests {
     }
 
     #[test]
-    fn context_window_expires() {
+    fn context_stores_all_lines_until_next_error() {
+        // collect_blocks now buffers everything up to the next trigger —
+        // context_limit is a display cap, not a collection cap.
         let p = patterns();
         let input = "src/foo.cpp:1:1: error: bad\nline1\nline2\nline3\n";
         let blocks = collect_blocks(input, 2, &p);
-        assert_eq!(blocks[0].context.len(), 2);
+        assert_eq!(blocks[0].context.len(), 3); // all 3 lines stored
+        assert_eq!(blocks[0].context_limit, 2); // display cap is still 2
     }
 
     #[test]
