@@ -4,7 +4,7 @@ Build error extractor with Vim keybindings for C++ / CMake / Ninja. Wraps your b
 
 <img src="bx.gif" width="400"/>
 
-Partially a learning project for Rust, so be lenient :-)
+Partially a learning project for Rust, so be lenient :-) More or less a reference implementation / PoC. Eventually I want to rewrite it in Zig. 
 
 ## Install
 
