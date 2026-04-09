@@ -167,10 +167,12 @@ fn main() -> Result<()> {
     }
 
     // Resolve the build command: explicit > saved > stdin
+    let mut using_saved = false;
     let cmd: Vec<String> = if !args.cmd.is_empty() {
         args.cmd.clone()
     } else if let Some(saved) = load_command()? {
         eprintln!("bx: using saved command: {}", saved.join(" "));
+        using_saved = true;
         saved
     } else {
         Vec::new() // will fall through to stdin check below
@@ -202,7 +204,10 @@ fn main() -> Result<()> {
 
     let blocks = collect_blocks(&raw, context_limit, &patterns);
 
-    if args.tui {
+    // Default to TUI when running a saved command with no explicit mode flag.
+    // If the user passed --tui explicitly, or is using a saved command, open TUI.
+    let use_tui = args.tui || using_saved;
+    if use_tui {
         let shown: Vec<_> = blocks.into_iter().filter(|b| {
             b.severity.is_error() || (args.warnings && !b.severity.is_error())
         }).collect();
