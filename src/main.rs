@@ -20,14 +20,25 @@ use classify::{build_patterns, collect_blocks, Config};
 use render::{render_plain, render_tui};
 use subprocess::{read_stdin, run_command};
 
-// Saved command, stored in .git/bx or .bx-command in the project root
+// Saved command — stored in .git/bx or .bx-command in the project root
 
+/// WIP, not quite happy with this one, but for now: 
 /// Walk up from the current directory to find the git root.
-/// Returns None if not inside a git repo.
-fn find_git_root() -> Option<PathBuf> {
+///
+/// If `local` is false (default): only stops at a real `.git` directory,
+/// which means submodule `.git` files are skipped and we land at the parent
+/// repo root. This is the right default for most workflows.
+///
+/// If `local` is true (--local flag): stops at the first `.git` entry
+/// regardless of whether it is a file or directory, so submodule roots are
+/// treated as independent roots.
+fn find_git_root(local: bool) -> Option<PathBuf> {
     let mut dir = std::env::current_dir().ok()?;
     loop {
-        if dir.join(".git").is_dir() {
+        let git = dir.join(".git");
+        if local && git.exists() {
+            return Some(dir);
+        } else if !local && git.is_dir() {
             return Some(dir);
         }
         if !dir.pop() {
@@ -37,10 +48,10 @@ fn find_git_root() -> Option<PathBuf> {
 }
 
 /// Find the saved command file. Walks up to the git root and stores it in
-/// .git/bx — never committed. Falls back to .bx-command in cwd if not in
+/// .git/bx, never committed. Falls back to .bx-command in cwd if not in
 /// a git repo.
-fn saved_command_path() -> PathBuf {
-    if let Some(root) = find_git_root() {
+fn saved_command_path(local: bool) -> PathBuf {
+    if let Some(root) = find_git_root(local) {
         root.join(".git").join("bx")
     } else {
         PathBuf::from(".bx-command")
@@ -53,8 +64,8 @@ struct SavedCommand {
     dir: PathBuf,
 }
 
-fn save_command(cmd: &[String]) -> Result<()> {
-    let path = saved_command_path();
+fn save_command(cmd: &[String], local: bool) -> Result<()> {
+    let path = saved_command_path(local);
     let cwd  = std::env::current_dir().context("failed to get current directory")?;
 
     // File format: first line is the working directory, remaining lines are
@@ -72,8 +83,8 @@ fn save_command(cmd: &[String]) -> Result<()> {
     Ok(())
 }
 
-fn load_command() -> Result<Option<SavedCommand>> {
-    let path = saved_command_path();
+fn load_command(local: bool) -> Result<Option<SavedCommand>> {
+    let path = saved_command_path(local);
     if !path.exists() {
         return Ok(None);
     }
@@ -100,6 +111,7 @@ struct Args {
     verbose:  bool,
     progress: bool,
     save:     bool,
+    local:    bool,
     context:  usize,
     cmd:      Vec<String>,
 }
@@ -113,6 +125,7 @@ impl Args {
             verbose:  false,
             progress: false,
             save:     false,
+            local:    false,
             context:  0,
             cmd:      Vec::new(),
         };
@@ -125,6 +138,7 @@ impl Args {
                 "--verbose" | "-v"  => args.verbose  = true,
                 "--progress" | "-p" => args.progress = true,
                 "--save"            => args.save     = true,
+                "--local"           => args.local    = true,
                 "--context" => {
                     i += 1;
                     args.context = raw.get(i)
@@ -159,6 +173,7 @@ OPTIONS:
     --verbose, -v   Stream all build output live
     --progress, -p  Show only build progress lines live ([ 42%] Building...)
     --save          Save the given command for this project
+    --local         Treat the nearest .git (file or dir) as root — useful in submodules
     --context N     Lines of context per error block (default: 10)
     --help, -h      Show this help
 
@@ -199,14 +214,14 @@ fn main() -> Result<()> {
     // --save: persist the command and exit
     if args.save {
         anyhow::ensure!(!args.cmd.is_empty(), "--save requires a build command");
-        return save_command(&args.cmd);
+        return save_command(&args.cmd, args.local);
     }
 
     // Resolve the build command: explicit > saved > stdin
     let mut using_saved = false;
     let cmd: Vec<String> = if !args.cmd.is_empty() {
         args.cmd.clone()
-    } else if let Some(saved) = load_command()? {
+    } else if let Some(saved) = load_command(args.local)? {
         eprintln!("bx: {} $ {}", saved.dir.display(), saved.cmd.join(" "));
         std::env::set_current_dir(&saved.dir)
             .with_context(|| format!("failed to cd to saved directory {:?}", saved.dir))?;
