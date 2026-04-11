@@ -108,7 +108,9 @@ src/main.cpp:24:6: note: candidate template ignored: substitution failure [with 
 1 error generated.
 "#;
     let blocks = collect_blocks(input, 10, &p);
-    // The note should attach to the error block, not create a new one
+    // The note should attach to the error block, not create a new one.
+    // "1 error generated." is a Build-severity summary line, so there may be
+    // 2 blocks total (Error + Build) but only 1 Error-severity block.
     assert_eq!(blocks.iter().filter(|b| b.severity == Severity::Error).count(), 1);
     let err = blocks.iter().find(|b| b.severity == Severity::Error).unwrap();
     assert!(err.context.iter().any(|(k, _)| *k == ContextKind::Note));
@@ -125,6 +127,16 @@ fn clang_fatal_error_missing_header() {
     let blocks = collect_blocks(input, 10, &p);
     assert_eq!(blocks[0].severity, Severity::Error);
     assert!(blocks[0].full_text().contains("fatal error"));
+}
+
+#[test]
+fn clang_error_generated_summary_is_build() {
+    let p = patterns();
+    // Clang summary lines should be Build, not Error — they are not actionable,
+    // the real errors appeared above them.
+    assert_eq!(classify("1 error generated.", &p), Some(&Severity::Build));
+    assert_eq!(classify("2 errors generated.", &p), Some(&Severity::Build));
+    assert_eq!(classify("fatal error: too many errors emitted, stopping now", &p), Some(&Severity::Build));
 }
 
 #[test]
@@ -359,7 +371,7 @@ fn zig_noise_lines_are_ignored() {
 #[test]
 fn context_does_not_bleed_between_adjacent_errors() {
     let p = patterns();
-    // Two errors in the same file at distant lines — context from the first
+    // Two errors in the same file at distant lines. context from the first
     // should not contaminate the second block.
     let input = r#"src/foo.cpp:10:5: error: first error
    10 | bad_code();
@@ -397,7 +409,7 @@ src/main.cpp:10:6: note: candidate function not viable: no known conversion from
 #[test]
 fn all_context_stored_up_to_next_error() {
     let p = patterns();
-    // 20 context lines between two errors — all should be stored even though
+    // 20 context lines between two errors and all should be stored even though
     // context_limit is 5. The limit is for display only.
     let mut input = "src/foo.cpp:1:1: error: first\n".to_string();
     for i in 0..20 {
