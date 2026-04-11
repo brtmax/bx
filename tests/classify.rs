@@ -1,3 +1,6 @@
+// Unit tests for the core classification logic: classify(), parse_location(),
+// collect_blocks(), and the config/pattern system.
+
 use bx::classify::{
     build_patterns, classify, collect_blocks, ContextKind, ErrorBlock, Pattern,
     Severity, SourceLoc, UserPattern,
