@@ -22,38 +22,74 @@ use subprocess::{read_stdin, run_command};
 
 // Saved command, stored in .git/bx or .bx-command in the project root
 
-/// Find the saved command file. Prefers .git/bx so it is never accidentally
-/// committed; falls back to .bx-command in the current directory.
+/// Walk up from the current directory to find the git root.
+/// Returns None if not inside a git repo.
+fn find_git_root() -> Option<PathBuf> {
+    let mut dir = std::env::current_dir().ok()?;
+    loop {
+        if dir.join(".git").is_dir() {
+            return Some(dir);
+        }
+        if !dir.pop() {
+            return None;
+        }
+    }
+}
+
+/// Find the saved command file. Walks up to the git root and stores it in
+/// .git/bx — never committed. Falls back to .bx-command in cwd if not in
+/// a git repo.
 fn saved_command_path() -> PathBuf {
-    let git_dir = PathBuf::from(".git");
-    if git_dir.is_dir() {
-        git_dir.join("bx")
+    if let Some(root) = find_git_root() {
+        root.join(".git").join("bx")
     } else {
         PathBuf::from(".bx-command")
     }
 }
 
+struct SavedCommand {
+    cmd: Vec<String>,
+    /// The working directory to run the command from.
+    dir: PathBuf,
+}
+
 fn save_command(cmd: &[String]) -> Result<()> {
     let path = saved_command_path();
-    std::fs::write(&path, cmd.join("\n"))
+    let cwd  = std::env::current_dir().context("failed to get current directory")?;
+
+    // File format: first line is the working directory, remaining lines are
+    // the command arguments one per line.
+    let mut content = cwd.to_string_lossy().to_string();
+    content.push('\n');
+    content.push_str(&cmd.join("\n"));
+
+    std::fs::write(&path, content)
         .with_context(|| format!("failed to save command to {:?}", path))?;
-    println!("bx: saved command to {:?}", path);
-    println!("bx: run `bx` (with any flags) to use it");
+
+    println!("bx: saved");
+    println!("    dir: {}", cwd.display());
+    println!("    cmd: {}", cmd.join(" "));
     Ok(())
 }
 
-fn load_command() -> Result<Option<Vec<String>>> {
+fn load_command() -> Result<Option<SavedCommand>> {
     let path = saved_command_path();
     if !path.exists() {
         return Ok(None);
     }
     let raw = std::fs::read_to_string(&path)
         .with_context(|| format!("failed to read saved command from {:?}", path))?;
-    let cmd: Vec<String> = raw.lines().map(|s| s.to_string()).collect();
+    let mut lines = raw.lines();
+
+    let dir = match lines.next() {
+        Some(d) if !d.is_empty() => PathBuf::from(d),
+        _ => return Ok(None),
+    };
+    let cmd: Vec<String> = lines.map(|s| s.to_string()).collect();
     if cmd.is_empty() {
         return Ok(None);
     }
-    Ok(Some(cmd))
+    Ok(Some(SavedCommand { cmd, dir }))
 }
 
 // Args
@@ -171,9 +207,11 @@ fn main() -> Result<()> {
     let cmd: Vec<String> = if !args.cmd.is_empty() {
         args.cmd.clone()
     } else if let Some(saved) = load_command()? {
-        eprintln!("bx: using saved command: {}", saved.join(" "));
+        eprintln!("bx: {} $ {}", saved.dir.display(), saved.cmd.join(" "));
+        std::env::set_current_dir(&saved.dir)
+            .with_context(|| format!("failed to cd to saved directory {:?}", saved.dir))?;
         using_saved = true;
-        saved
+        saved.cmd
     } else {
         Vec::new() // will fall through to stdin check below
     };
