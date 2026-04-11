@@ -38,9 +38,7 @@ fn find_git_root(local: bool) -> Option<PathBuf> {
         let git = dir.join(".git");
         if local && git.exists() {
             return Some(dir);
-        } else if !local && git.is_dir() {
-            return Some(dir);
-        }
+        } 
         if !dir.pop() {
             return None;
         }
