@@ -20,9 +20,9 @@ use classify::{build_patterns, collect_blocks, Config};
 use render::{render_plain, render_tui};
 use subprocess::{read_stdin, run_command};
 
-// Saved command — stored in .git/bx or .bx-command in the project root
+// Saved command, stored in .git/bx or .bx-command in the project root
 
-/// WIP, not quite happy with this one, but for now: 
+/// WIP, but for now: 
 /// Walk up from the current directory to find the git root.
 ///
 /// If `local` is false (default): only stops at a real `.git` directory,
@@ -90,13 +90,27 @@ fn load_command(local: bool) -> Result<Option<SavedCommand>> {
     }
     let raw = std::fs::read_to_string(&path)
         .with_context(|| format!("failed to read saved command from {:?}", path))?;
-    let mut lines = raw.lines();
+    let mut lines = raw.lines().peekable();
 
-    let dir = match lines.next() {
-        Some(d) if !d.is_empty() => PathBuf::from(d),
+    // Handle old format gracefully
+    let first = match lines.next() {
+        Some(l) if !l.is_empty() => l,
         _ => return Ok(None),
     };
-    let cmd: Vec<String> = lines.map(|s| s.to_string()).collect();
+
+    let (dir, cmd_first) = if first.starts_with('/') || first.starts_with('~') {
+        // New format: first line is the directory
+        (PathBuf::from(first), None)
+    } else {
+        // Old format: first line is the first command argument, use cwd
+        eprintln!("bx: save file is in old format — re-run `bx --save <command>` to update it");
+        (std::env::current_dir().unwrap_or_default(), Some(first.to_string()))
+    };
+
+    let mut cmd: Vec<String> = lines.map(|s| s.to_string()).collect();
+    if let Some(first_arg) = cmd_first {
+        cmd.insert(0, first_arg);
+    }
     if cmd.is_empty() {
         return Ok(None);
     }
